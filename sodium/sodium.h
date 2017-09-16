@@ -527,10 +527,27 @@ namespace sodium {
         cell<typename std::result_of<Fn(A)>::type> map(const Fn& f) const {
             typedef typename std::result_of<Fn(A)>::type B;
             transaction trans;
-            auto ca = cell<B>(impl::map_(
-                trans.impl(), SODIUM_DETYPE_FUNCTION1(A, B, f), *this));
+
+            cell<B> cmapped;
+#if defined(SODIUM_CONSTANT_OPTIMIZATION)
+            boost::optional<light_ptr> ca = this->get_constant_value();
+            if (ca)
+                cmapped = impl::cell_(
+                    light_ptr::create<B>(f(*ca.get().cast_ptr<A>(nullptr))));
+            else {
+#endif
+                auto g = SODIUM_DETYPE_FUNCTION1(A, B, f);
+                auto this_impl = this->impl;
+                cmapped = map_(trans.impl(), g, this->updates_()).hold_lazy_(
+                    trans.impl(), [g, this_impl]() -> light_ptr {
+                        return g(this_impl->sample());
+                    });
+#if defined(SODIUM_CONSTANT_OPTIMIZATION)
+            }
+#endif
+
             trans.close();
-            return ca;
+            return cell<B>(cmapped);
         }
 
         /*!
